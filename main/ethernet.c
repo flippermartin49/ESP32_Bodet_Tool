@@ -1,7 +1,9 @@
 #include "ethernet.h"
 
-static const char *TAG = "ETH_IP101";
+static const char *TAG_ETH = "ETH_IP101";
 static const char *TAG_UDP = "UDP_SCAN";
+static const char *TAG_PING = "PING";
+
 
 #define RECEIVE_PORT 1669
 #define SEND_PORT    1668
@@ -14,16 +16,16 @@ static void eth_event_handler(void *arg, esp_event_base_t event_base, int32_t ev
     switch (event_id)
     {
         case ETHERNET_EVENT_CONNECTED:
-            ESP_LOGI(TAG, "Ethernet Link Up");
+            ESP_LOGI(TAG_ETH, "Ethernet Link Up");
             break;
         case ETHERNET_EVENT_DISCONNECTED:
-            ESP_LOGI(TAG, "Ethernet Link Down");
+            ESP_LOGI(TAG_ETH, "Ethernet Link Down");
             break;
         case ETHERNET_EVENT_START:
-            ESP_LOGI(TAG, "Ethernet Started");
+            ESP_LOGI(TAG_ETH, "Ethernet Started");
             break;
         case ETHERNET_EVENT_STOP:
-            ESP_LOGI(TAG, "Ethernet Stopped");
+            ESP_LOGI(TAG_ETH, "Ethernet Stopped");
             break;
     }
 }
@@ -34,12 +36,12 @@ static void got_ip_event_handler(void *arg, esp_event_base_t event_base, int32_t
     esp_netif_ip_info_t ip_info;
     esp_netif_get_ip_info(netif, &ip_info);
 
-    ESP_LOGI(TAG, "Got IP: " IPSTR, IP2STR(&ip_info.ip));
+    ESP_LOGI(TAG_ETH, "Got IP: " IPSTR, IP2STR(&ip_info.ip));
 }
 
-static void get_eth_mac(uint8_t *mac)
+esp_eth_handle_t get_eth_handle(void)
 {
-    esp_eth_ioctl(s_eth_handle, ETH_CMD_G_MAC_ADDR, mac);
+    return s_eth_handle;
 }
 
 void ethernet_init(void)
@@ -49,7 +51,7 @@ void ethernet_init(void)
     ESP_ERROR_CHECK(esp_netif_init());
     
     if (esp_event_loop_create_default() != ESP_OK) {
-        ESP_LOGI(TAG, "Event loop already created, continuing...");
+        ESP_LOGI(TAG_ETH, "Event loop already created, continuing...");
     }
 
     /// --- NETIF ---
@@ -86,7 +88,7 @@ void ethernet_init(void)
     ESP_ERROR_CHECK(esp_netif_attach(eth_netif, esp_eth_new_netif_glue(eth_handle)));
     ESP_ERROR_CHECK(esp_eth_start(eth_handle));
 
-    ESP_LOGI(TAG, "Ethernet init done (IP101GRI)");
+    ESP_LOGI(TAG_ETH, "Ethernet init done (IP101GRI)");
 }
 
 /************************** UDP REQUEST ***************/
@@ -170,3 +172,68 @@ void udp_discovery_listener_task(void *arg)
     }
 }
 
+/************************** ICMP PING ***************/
+
+/* checksum ICMP */
+static uint16_t icmp_checksum(uint16_t *buf, int len)
+{
+    uint32_t sum = 0;
+    while (len > 1) {
+        sum += *buf++;
+        len -= 2;
+    }
+    if (len == 1)
+        sum += *(uint8_t*)buf;
+
+    sum = (sum >> 16) + (sum & 0xFFFF);
+    sum += (sum >> 16);
+    return ~sum;
+}
+
+void ping_ip(const char *target)
+{
+    int sock = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
+    if (sock < 0) {
+        ESP_LOGE(TAG_PING, "socket RAW failed");
+        return;
+    }
+
+    struct sockaddr_in addr = {0};
+    addr.sin_family = AF_INET;
+    inet_pton(AF_INET, target, &addr.sin_addr);
+
+    struct icmp_echo_hdr icmp = {0};
+    ICMPH_TYPE_SET(&icmp, ICMP_ECHO);
+    ICMPH_CODE_SET(&icmp, 0);
+    icmp.id = esp_random();
+    icmp.seqno = 1;
+
+    icmp.chksum = 0;
+    icmp.chksum = inet_chksum(&icmp, sizeof(icmp));
+
+    int err = sendto(sock, &icmp, sizeof(icmp), 0,
+                     (struct sockaddr *)&addr, sizeof(addr));
+
+    if (err < 0) {
+        ESP_LOGE(TAG_PING, "sendto failed");
+        close(sock);
+        return;
+    }
+
+    struct timeval tv = {2, 0};
+    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+
+    uint8_t rx[128];
+    socklen_t len = sizeof(addr);
+
+    err = recvfrom(sock, rx, sizeof(rx), 0,
+                   (struct sockaddr *)&addr, &len);
+
+    if (err > 0) {
+        ESP_LOGI(TAG_PING, "PING %s OK", target);
+    } else {
+        ESP_LOGW(TAG_PING, "PING %s TIMEOUT", target);
+    }
+
+    close(sock);
+}

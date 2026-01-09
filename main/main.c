@@ -14,13 +14,7 @@ void app_main(void)
     xTaskCreate(tcp_server_task, "tcp_server", 4096, NULL, 5, NULL);
     
     xTaskCreate(udp_discovery_listener_task, "udp_listener", 4096, NULL, 5, NULL);
-    xTaskCreate(console_task, "console", 4096, NULL, 5, NULL);
-    while (1)
-    {
-        udp_broadcast_send();
-        vTaskDelay(pdMS_TO_TICKS(5000));
-    }
-    
+    xTaskCreate(console_task, "console", 4096, NULL, 5, NULL);    
 
-    vTaskDelay(pdMS_TO_TICKS(50));
+    vTaskDelay(pdMS_TO_TICKS(500));
 }

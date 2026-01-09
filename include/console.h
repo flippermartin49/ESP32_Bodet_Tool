@@ -13,18 +13,19 @@
 
 #include "linenoise/linenoise.h"
 
-#include "ethernet.h"   // pour udp_broadcast_send()
-
-static const char *TAG = "CONSOLE";
+#include "ethernet.h"   
 
 void console_init(void);
 void console_task(void *args);
 void save_commands(void);
 
-static int cmd_scan(int argc, char **argv);
-static int cmd_help(int argc, char **argv);
-static int cmd_getMAC(int argc, char **argvc);
-static int cmd_getIP_Info(int agrc, char **argvc);
-
+int cmd_status_link(int argc, char **argv);
+int cmd_scan(int argc, char **argv);
+int cmd_help(int argc, char **argv);
+int cmd_getMAC(int argc, char **argvc);
+int cmd_getIP_Info(int agrc, char **argvc);
+int cmd_getWIFI_Info(int agrc, char **argvc);
+int cmd_ping(int argc, char **argvc);
+int cmd_reboot(int argc, char **argvc);
 
 #endif
