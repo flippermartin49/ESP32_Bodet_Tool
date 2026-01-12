@@ -211,8 +211,9 @@ void ping_ip(const char *target)
     icmp.chksum = 0;
     icmp.chksum = inet_chksum(&icmp, sizeof(icmp));
 
-    int err = sendto(sock, &icmp, sizeof(icmp), 0,
-                     (struct sockaddr *)&addr, sizeof(addr));
+    int64_t start_time = esp_timer_get_time();
+
+    int err = sendto(sock, &icmp, sizeof(icmp), 0, (struct sockaddr *)&addr, sizeof(addr));
 
     if (err < 0) {
         ESP_LOGE(TAG_PING, "sendto failed");
@@ -226,13 +227,17 @@ void ping_ip(const char *target)
     uint8_t rx[128];
     socklen_t len = sizeof(addr);
 
-    err = recvfrom(sock, rx, sizeof(rx), 0,
-                   (struct sockaddr *)&addr, &len);
+    ESP_LOGI(TAG_PING, "Waiting for response...");
+    err = recvfrom(sock, rx, sizeof(rx), 0, (struct sockaddr *)&addr, &len);
 
     if (err > 0) {
-        ESP_LOGI(TAG_PING, "PING %s OK", target);
+        int64_t t_end = esp_timer_get_time();
+        float rtt_ms = (t_end - start_time) / 1000.0;
+
+        ESP_LOGI(TAG_PING, "Reply from %s: time=%.2f ms", target, rtt_ms);
+        
     } else {
-        ESP_LOGW(TAG_PING, "PING %s TIMEOUT", target);
+        ESP_LOGE(TAG_PING, "PING %s TIMEOUT", target);
     }
 
     close(sock);

@@ -19,13 +19,17 @@ void console_init(void);
 void console_task(void *args);
 void save_commands(void);
 
+int cmd_AT(int agrc, char **argv);
 int cmd_status_link(int argc, char **argv);
 int cmd_scan(int argc, char **argv);
 int cmd_help(int argc, char **argv);
 int cmd_getMAC(int argc, char **argvc);
-int cmd_getIP_Info(int agrc, char **argvc);
+int cmd_get_eth_IP_Info(int agrc, char **argvc);
 int cmd_getWIFI_Info(int agrc, char **argvc);
 int cmd_ping(int argc, char **argvc);
 int cmd_reboot(int argc, char **argvc);
+int cmd_set_eth_ip(int argc, char **argvc);
+int cmd_set_wifi_ip(int argc, char **argvc);
+
 
 #endif

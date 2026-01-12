@@ -2,6 +2,7 @@
 #define _ETHERNET_H
 
 #include "esp_event.h"
+#include "esp_timer.h"
 #include "esp_eth.h"
 #include "esp_netif.h"
 #include "esp_log.h"
