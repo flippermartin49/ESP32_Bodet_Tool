@@ -1,10 +1,24 @@
+/**
+ * @file wifi.c
+ * @author soulardma
+ * @brief Fichier de configuration Wifi + serveur HTTP
+ * @version 0.1
+ * @date 2026-01-15
+ * 
+ * @copyright Copyright (c) 2026
+ * 
+ */
+
+
 
 #include "../include/wifi.h"
 
+httpd_handle_t server = NULL;
 
 static const char *TAG_WIFI = "WIFI_P2P";
+static const char *TAG_HTTP = "HTTP";
 
-void wifi_init_p2p(void)
+void wifi_init_ap(void)
 {
     nvs_flash_init();
     esp_netif_init();
@@ -12,88 +26,142 @@ void wifi_init_p2p(void)
 
     esp_netif_t* netif = esp_netif_create_default_wifi_ap();
 
-    // ------ IP statique 192.168.4.1 ------
+    // IP fixe
     esp_netif_ip_info_t ip_info;
-    IP4_ADDR(&ip_info.ip,      192, 168, 4, 1);
-    IP4_ADDR(&ip_info.gw,      192, 168, 4, 1);
-    IP4_ADDR(&ip_info.netmask, 255, 255, 255, 0);
+    IP4_ADDR(&ip_info.ip, 192,168,4,1);
+    IP4_ADDR(&ip_info.gw, 192,168,4,1);
+    IP4_ADDR(&ip_info.netmask,255,255,255,0);
 
-    ESP_ERROR_CHECK(esp_netif_dhcps_stop(netif));
-    ESP_ERROR_CHECK(esp_netif_set_ip_info(netif, &ip_info));
-    ESP_ERROR_CHECK(esp_netif_dhcps_start(netif));
+    esp_netif_dhcps_stop(netif);
+    esp_netif_set_ip_info(netif, &ip_info);
+    esp_netif_dhcps_start(netif);
 
- ESP_LOGI(TAG_WIFI, "IP AP fixée : %s", ip4addr_ntoa((const ip4_addr_t*)&ip_info.ip));
-
-    // ------ WiFi ------
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+    
     esp_wifi_init(&cfg);
 
     wifi_config_t wifi_config = {
         .ap = {
-            .ssid = "ESP32_P2P",
+            .ssid = "ESP32_BODETOOL",
             .password = "12345678",
-            .ssid_len = 0,
             .channel = 1,
             .max_connection = 4,
             .authmode = WIFI_AUTH_WPA_WPA2_PSK
         },
     };
 
-    esp_wifi_set_mode(WIFI_MODE_AP);
-    esp_wifi_set_config(WIFI_IF_AP, &wifi_config);
-    esp_wifi_start();
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
+    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifi_config));
+    ESP_ERROR_CHECK(esp_wifi_start());
 
-    ESP_LOGI(TAG_WIFI, "Soft-AP actif. SSID: ESP32_P2P | IP: 192.168.4.1");
+    ESP_LOGI(TAG_WIFI, "AP démarré : 192.168.4.1");
+
+    start_http_server();   // <-- serveur HTTP ici
 }
 
-void wifi_create_ap(void)
+void start_http_server(void)
 {
-    wifi_config_t ap_config = {
-        .ap = {
-            .ssid = "ESP32_P2P",
-            .ssid_len = strlen("ESP32_P2P"),
-            .channel = 1,
-            .password = "12345678",
-            .max_connection = 4,
-            .authmode = WIFI_AUTH_WPA_WPA2_PSK
-        },
-    };
-    if (strlen((char*)ap_config.ap.password) == 0) {
-        ap_config.ap.authmode = WIFI_AUTH_OPEN;
-    }
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &ap_config));
-    ESP_LOGI(TAG_WIFI, "Point d'accès créé avec SSID:%s", ap_config.ap.ssid);
-}
+    httpd_config_t config = HTTPD_DEFAULT_CONFIG();
+    config.stack_size = 8192;
+    ESP_LOGI("HTTP", "Server port: %d", config.server_port);
 
-void tcp_server_task(void *pvParameters)
-{
-    char rx_buffer[128];
-    int addr_family = AF_INET;
-    int ip_protocol = IPPROTO_IP;
+    if(httpd_start(&server,&config)==ESP_OK)
+    {
+        httpd_uri_t uri_device = {
+            .uri      = "/devices", 
+            .method   = HTTP_GET,
+            .handler  = devices_get_handler,
+            .user_ctx = NULL
+        };
 
-    struct sockaddr_in dest_addr;
-    dest_addr.sin_addr.s_addr = htonl(INADDR_ANY);
-    dest_addr.sin_family = AF_INET;
-    dest_addr.sin_port = htons(PORT);
+        httpd_uri_t root_uri = {
+            .uri      = "/",
+            .method   = HTTP_GET,
+            .handler  = root_handler,
+        };
 
-    int listen_sock = socket(addr_family, SOCK_STREAM, ip_protocol);
-    bind(listen_sock, (struct sockaddr *)&dest_addr, sizeof(dest_addr));
-    listen(listen_sock, 1);
+        httpd_uri_t scan_dhs_uri = {
+            .uri      = "/scan_dhs",
+            .method   = HTTP_GET,
+            .handler  = scan_dhs_handler,
+        };
 
-    while (1) {
-        struct sockaddr_in6 source_addr;
-        socklen_t socklen = sizeof(source_addr);
-        int sock = accept(listen_sock, (struct sockaddr *)&source_addr, &socklen);
-        if (sock < 0) {
-            ESP_LOGE(TAG_WIFI, "Erreur accept");
-            continue;
-        }
+        httpd_uri_t proxy_test_uri = {
+            .uri      = "/proxy/test",
+            .method   = HTTP_GET,
+            .handler  = proxy_test_handler,
+            .user_ctx = NULL
+        };
 
-        int len;
-        while ((len = recv(sock, rx_buffer, sizeof(rx_buffer) - 1, 0)) > 0) {
-            rx_buffer[len] = 0;
-            ESP_LOGI(TAG_WIFI, "Reçu: %s", rx_buffer);
-        }
-        close(sock);
+        httpd_register_uri_handler(server,&uri_device);
+        httpd_register_uri_handler(server, &root_uri);
+        httpd_register_uri_handler(server, &scan_dhs_uri);
+        httpd_register_uri_handler(server, &proxy_test_uri);
+
+
+        ESP_LOGI(TAG_HTTP,"Serveur HTTP démarré");
     }
 }
+
+esp_err_t root_handler(httpd_req_t *req)
+{
+    const char *resp =
+        "ESP32 Device API\n"
+        "Use:\n"
+        "  /devices\n";
+
+    httpd_resp_send(req, resp, HTTPD_RESP_USE_STRLEN);
+    return ESP_OK;
+}
+
+esp_err_t scan_dhs_handler(httpd_req_t *req)
+{
+    ESP_LOGI(TAG_HTTP, "SCAN DHS request...");
+
+    udp_broadcast_send("dhs 1 get-info");
+
+    httpd_resp_send(req, "SCAN_STARTED", HTTPD_RESP_USE_STRLEN);
+
+    return ESP_OK;
+}
+
+// Requete uniquement en mode listener, lancer scan udp avant
+esp_err_t devices_get_handler(httpd_req_t *req)
+{
+    static char json_list[MAX_JSON_LEN];
+    ESP_LOGI(TAG_HTTP,"Device_get_handler http...");
+
+    generate_devices_json(json_list);
+
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, json_list, HTTPD_RESP_USE_STRLEN);
+
+    return ESP_OK;
+}
+
+esp_err_t proxy_test_handler(httpd_req_t *req)
+{
+    ESP_LOGI("HTTP", "proxy_test_handler called");
+
+    const char *html =
+        "<!DOCTYPE html>"
+        "<html>"
+        "<head>"
+        "<meta charset='utf-8'>"
+        "<title>ESP32 Proxy Test</title>"
+        "<style>"
+        "body { font-family: sans-serif; background:#FFF012; padding:20px; }"
+        "h1 { color:#000; }"
+        "</style>"
+        "</head>"
+        "<body>"
+        "<h1>Proxy ESP32 OK</h1>"
+        "<p>La page est bien streamée depuis l'ESP32.</p>"
+        "</body>"
+        "</html>";
+
+    httpd_resp_set_type(req, "text/html");
+    httpd_resp_send(req, html, HTTPD_RESP_USE_STRLEN);
+    return ESP_OK;
+}
+

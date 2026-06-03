@@ -152,8 +152,8 @@ int cmd_AT(int arc, char **argv)
 
 int cmd_scan(int argc, char **argv)
 {
-    ESP_LOGI(TAG_PROMPT, "AT+SCAN -> UDP broadcast SCAN");
-    udp_broadcast_send();
+    ESP_LOGI(TAG_PROMPT, "SCAN -> UDP broadcast SCAN");
+    udp_broadcast_send("dhs 1 get-info");
     return 0;
 }
 
@@ -320,7 +320,7 @@ int cmd_set_wifi_ip(int argc, char **argv)
         ESP_LOGI(TAG_PROMPT,"--- Nouvelle config IP Wifi ---");
         ESP_LOGI(TAG_PROMPT,"Wi-Fi IP appliquée : %s", argv[1]);
         ESP_LOGI(TAG_PROMPT,"Subnet Mask : %s", argv[2]);
-        ESP_LOGI(TAG_PROMPT,"Gateway : %s", ip4addr_ntoa(&ip_info.gw));
+        ESP_LOGI(TAG_PROMPT,"Gateway : %s", ip4addr_ntoa((const ip4_addr_t*)&ip_info.gw));
     }
     else
     {

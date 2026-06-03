@@ -4,12 +4,15 @@ static const char *TAG_ETH = "ETH_IP101";
 static const char *TAG_UDP = "UDP_SCAN";
 static const char *TAG_PING = "PING";
 
-
 #define RECEIVE_PORT 1669
 #define SEND_PORT    1668
 #define DISCOVERY_MSG  "dhs 2 set-info"
 
 static esp_eth_handle_t s_eth_handle = NULL;
+
+device_t extern_device = {0};
+device_t extern_devices_list[MAX_DEVICES];
+uint8_t device_count = 0;
 
 static void eth_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data)
 {
@@ -93,7 +96,7 @@ void ethernet_init(void)
 
 /************************** UDP REQUEST ***************/
 
-void udp_broadcast_send()
+void udp_broadcast_send(const char *msg)
 {
     esp_netif_ip_info_t ip_info;
     esp_netif_t *netif = esp_netif_get_handle_from_ifkey("ETH_DEF");
@@ -127,19 +130,23 @@ void udp_broadcast_send()
     dest_addr.sin_port   = htons(SEND_PORT);           // port sur lequel les autres écoutent
     dest_addr.sin_addr.s_addr = inet_addr("255.255.255.255"); // broadcast
 
-    const char *msg = "dhs 1 get-info";
+    //const char *msg = "dhs 1 get-info";
     int err = sendto(sock, msg, strlen(msg), 0, (struct sockaddr *)&dest_addr, sizeof(dest_addr));
     if (err < 0) {
         ESP_LOGE(TAG_UDP, "Erreur sendto : %d", err);
     } else {
         ESP_LOGI(TAG_UDP, "Broadcast envoyé sur %s:%d", inet_ntoa(dest_addr.sin_addr), SEND_PORT);
+        device_count = 0; // RAZ nombre de device détectés
     }
 
     close(sock);
 }
 
-
-
+/**
+ * @brief FreeRTOS task pour découverte réseau
+ * 
+ * @param arg 
+ */
 void udp_discovery_listener_task(void *arg)
 {
     int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
@@ -156,8 +163,9 @@ void udp_discovery_listener_task(void *arg)
 
     bind(sock, (struct sockaddr *)&addr, sizeof(addr));
 
-    while (1) {
-        char rx_buffer[128];
+    while (1) 
+    {
+        char rx_buffer[256];
         struct sockaddr_in source_addr;
         socklen_t addr_len = sizeof(source_addr);
 
@@ -165,16 +173,55 @@ void udp_discovery_listener_task(void *arg)
 
         if (len > 0) 
         {
-            rx_buffer[len] = 0;
+            rx_buffer[len] = 0;        
 
-            ESP_LOGI(TAG_UDP, "Réponse de %s : %s", inet_ntoa(source_addr.sin_addr), rx_buffer);
-        }
+            // Récupération des devices depuis rx_buffer vers une liste de devices (+ affichage LOG)
+            if(parse_udp_device(rx_buffer, &extern_device))
+            {
+                /*
+                ESP_LOGI(TAG_UDP,"NAME        : %s",extern_device.nom_produit);
+                ESP_LOGI("SCAN","DHCP        : %s",extern_device.dhcp);
+                ESP_LOGI("SCAN","IP          : %s",extern_device.ip);
+                ESP_LOGI("SCAN","MASK        : %s",extern_device.mask);
+                ESP_LOGI("SCAN","MAC         : %s",extern_device.mac);
+                ESP_LOGI("SCAN","DNS         : %s",extern_device.dns);
+                ESP_LOGI("SCAN","GATEWAY     : %s",extern_device.gateway);
+                ESP_LOGI("SCAN","VERSION     : %s",extern_device.version);
+                ESP_LOGI("SCAN","GAMME       : %s\n",extern_device.gamme);
+                */
+               
+                // On check les doublons en cas de double appel UDP sur le réseau
+                if(!device_exists(extern_device.mac))
+                {
+                    extern_devices_list[device_count] = extern_device;
+                    device_count++;
+                }
+                else
+                {
+                    ESP_LOGW(TAG_UDP,"Device déjà présent : %s",extern_device.mac);
+                }
+                
+            }
+
+            ESP_LOGI(TAG_UDP, "Device %d detected", device_count);
+        }        
     }
+}
+
+bool device_exists(const char *mac)
+{
+    for(int i=0;i<device_count;i++)
+    {
+        if(strcmp(extern_devices_list[i].mac, mac)==0)
+            return true;
+    }
+    return false;
 }
 
 /************************** ICMP PING ***************/
 
 /* checksum ICMP */
+
 static uint16_t icmp_checksum(uint16_t *buf, int len)
 {
     uint32_t sum = 0;
