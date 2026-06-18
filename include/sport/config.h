@@ -1,6 +1,28 @@
 #ifndef _CONFIG_H_
 #define _CONFIG_H_
 
+#include "driver/uart.h"
+#include "driver/gpio.h"
+#include "esp_log.h"
+
+#define UART_NUM       UART_NUM_2
+#define UART_TX_PIN    GPIO_NUM_33
+#define UART_RX_PIN    GPIO_NUM_32
+#define RS485_DE_PIN   GPIO_NUM_4
+
+#define UART_BUF_SIZE  256
+
+#define SOF         0x30
+
+
+typedef struct {
+    uint8_t data[50];
+    size_t  len;
+    uint8_t start_byte;
+} varsys_frame_t;
+
+extern varsys_frame_t handle_varsys;
+
 typedef enum {
     NETWORK_OUTDOOR,
     NETWORK_INDOOR,
@@ -21,6 +43,7 @@ typedef enum{
     MODE_ECO,      /* Tout arrete */
 }mode_eco_e;
 
+// structure de la trame de configuration
 typedef struct {
     uint8_t sof;
     uint16_t cmd;
@@ -31,34 +54,36 @@ typedef struct {
     uint16_t crc;
     uint8_t eof;
 } config_trame_t;
-
-void config_init(void);
-uint8_t send_command_config(config_trame_t trame); 
+ 
 
 // General config command
-#define CFG_CMD                    0x0000
-#define CFG_CMD_ACK                0x0001 //Lors d'un acquittement les deux premiers octets contiennent forc�ment la commande re�u
-#define CFG_CMD_NACK               0x0002
-#define CFG_CMD_ENTER              0x0003
-#define CFG_CMD_EXIT               0x0004
-#define CFG_CMD_ALIVE              0x0005
+// 1er octet
+#define CFG_CMD                    0x00
+// 2nd octet
+#define CFG_CMD_ACK                0x01 //Lors d'un acquittement les deux premiers octets contiennent forc�ment la commande re�u
+#define CFG_CMD_NACK               0x02
+#define CFG_CMD_ENTER              0x03
+#define CFG_CMD_EXIT               0x04
+#define CFG_CMD_ALIVE              0x05
 
 /*******************************/
 /*  COMMANDES DE CONFIGURATION */
 /*******************************/
-
+// 1er octet
 #define CFG_CMD_CONFIG             0x10
-#define CFG_CMD_SET_DEFAULT_CFG    0x1001
-#define CFG_CMD_SET_CONFIG_BOARD   0x1002 //Si on ne veut pas changer une partie de la config on envoie des 0xFF � la place des datas
-#define CFG_CMD_GET_CONFIG_BOARD   0x1003
-#define CFG_CMD_SET_CONFIG_PARAM   0x1004
-#define CFG_CMD_GET_CONFIG_PARAM   0x1005
-#define CFG_CMD_SET_CONFIG_MODEM   0x1006
-#define CFG_CMD_GET_CONFIG_MODEM   0x1007
-#define CFG_CMD_GET_MODEM_VER      0x1008
-#define CFG_CMD_GET_BOARD_VER      0x1009
-#define CFG_CMD_LOCALISATION       0x1010
-#define CFG_CMD_RESET              0x1011
+
+// 2nd octet
+#define CFG_CMD_SET_DEFAULT_CFG    0x01
+#define CFG_CMD_SET_CONFIG_BOARD   0x02 //Si on ne veut pas changer une partie de la config on envoie des 0xFF � la place des datas
+#define CFG_CMD_GET_CONFIG_BOARD   0x03
+#define CFG_CMD_SET_CONFIG_PARAM   0x04
+#define CFG_CMD_GET_CONFIG_PARAM   0x05
+#define CFG_CMD_SET_CONFIG_MODEM   0x06
+#define CFG_CMD_GET_CONFIG_MODEM   0x07
+#define CFG_CMD_GET_MODEM_VER      0x08
+#define CFG_CMD_GET_BOARD_VER      0x09
+#define CFG_CMD_LOCALISATION       0x10
+#define CFG_CMD_RESET              0x11
 
 /*******************************/
 /*      COMMANDES DE TEST      */
@@ -66,15 +91,17 @@ uint8_t send_command_config(config_trame_t trame);
 
 // OTA firmware update download command
 #define CFG_CMD_FW_UPDATE          0x30
-#define CFG_CMD_FW_UPDATE_START    0x3000
+#define CFG_CMD_FW_UPDATE_START    0x00
 
 // Test board command
+// 1er octet
 #define CFG_CMD_TEST               0x40
-#define CFG_CMD_TEST_START         0x4000
-#define CFG_CMD_TEST_CHANGE_MODE   0x4001
-#define CFG_CMD_TEST_FLUSH_LINE    0x4002
-#define CFG_CMD_TEST_CLEAN_LINE    0x4003
-#define CFG_CMD_TEST_SET_OPTIONS   0x4004
+// 2nd octet
+#define CFG_CMD_TEST_START         0x00
+#define CFG_CMD_TEST_CHANGE_MODE   0x01
+#define CFG_CMD_TEST_FLUSH_LINE    0x02
+#define CFG_CMD_TEST_CLEAN_LINE    0x03
+#define CFG_CMD_TEST_SET_OPTIONS   0x04
 
 /**************************************/
 /*      COMMANDES DE RECENSEMENT      */
@@ -82,12 +109,13 @@ uint8_t send_command_config(config_trame_t trame);
 
 // Recensement command
 #define CFG_CMD_RCST               0x20
-#define CFG_CMD_RCST_START         0x2000 //D�but du recensement
-#define CFG_CMD_RCST_STOP          0x2001 //Arr�t du recesement
-#define CFG_CMD_RCST_ANSW          0x2002 //Demande de recenssement de la carte suite au d�marrage du resencement
-#define CFG_CMD_RCST_OK            0x2003 //R�ponse OK du pupitre
-#define CFG_CMD_RCST_NOK           0x2004 //R�ponse NOK du pupitre
-#define CFG_CMD_RCST_VERIF         0x2005 //Demande de v�rification de la part du pupitre
+
+#define CFG_CMD_RCST_START         0x00 //D�but du recensement
+#define CFG_CMD_RCST_STOP          0x01 //Arr�t du recesement
+#define CFG_CMD_RCST_ANSW          0x02 //Demande de recenssement de la carte suite au d�marrage du resencement
+#define CFG_CMD_RCST_OK            0x03 //R�ponse OK du pupitre
+#define CFG_CMD_RCST_NOK           0x04 //R�ponse NOK du pupitre
+#define CFG_CMD_RCST_VERIF         0x05 //Demande de v�rification de la part du pupitre
 
 /* Liste Gamme LEGACY */
 #define MAP_SCOREBOARD_LEGACY_LIST                                                              \
@@ -197,5 +225,33 @@ typedef enum {
 
 #undef X
 
+// Structure avec les paramètres de configuration
+typedef struct 
+{
+    char version[10]; 
+    uint8_t board_number;
+    uint8_t installation_number;
+    map_scoreboard_e scoreboard;
+    bool board_master;
+    uint8_t luminosity;
+    uint8_t coef_luminosity;
+    bool board_btx;
+    language_e board_language;
+    bool modem_autoscan;
+    uint8_t modem_canal; /* Canal de 1 a 6 */
+    modem_network_e modem_network;
+    uint16_t klaxon_time;
+    mode_eco_e mode;
+    uint16_t board_id;
+    int8_t temperature_offset;
+    bool mode_config;
+    bool autonomous;
+}config_t;
+
+extern config_t config;
+
+void config_init(void);
+void enter_mode_config(void);
+uint8_t send_command_config(config_trame_t trame);
 
 #endif

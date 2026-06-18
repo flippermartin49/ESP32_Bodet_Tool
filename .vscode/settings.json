@@ -5,7 +5,7 @@
   "idf.openOcdConfigs": [
     "board/esp32-wrover-kit-3.3v.cfg"
   ],
-  "idf.portWin": "COM6",
+  "idf.portWin": "COM4",
   "idf.toolsPathWin": "C:\\Users\\soula\\.espressif",
   "idf.customExtraVars": {
     "IDF_TARGET": "esp32"
@@ -16,5 +16,6 @@
     "--query-driver=C:\\Users\\soula\\.espressif\\tools\\xtensa-esp32-elf\\esp-12.2.0_20230208\\xtensa-esp32-elf\\bin\\xtensa-esp32-elf-gcc.exe",
     "--compile-commands-dir=${workspaceFolder}\\build"
   ],
-  "idf.flashType": "UART"
+  "idf.flashType": "UART",
+  "idf.currentSetup": "C:\\Espressif\\frameworks\\esp-idf-v5.1-2"
 }
