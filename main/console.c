@@ -78,8 +78,21 @@ void save_commands(void)
         .func = &cmd_set_wifi_ip,
     };
 
+    esp_console_cmd_t enter_config_cmd = {
+        .command = "ENTER_CONFIG",
+        .help = "Enter config mode",
+        .hint = "No parameters",
+        .func = &cmd_enter_config,
+    };
 
+    esp_console_cmd_t exit_config_cmd = {
+        .command = "EXIT_CONFIG",
+        .help = "Exit config mode",
+        .hint = "No parameters",
+        .func = &cmd_exit_config,
+    };
 
+    /** ETHERNET **/
     ESP_ERROR_CHECK(esp_console_cmd_register(&scan_cmd));
     ESP_ERROR_CHECK(esp_console_cmd_register(&help_cmd));
     ESP_ERROR_CHECK(esp_console_cmd_register(&MACcmd));
@@ -90,6 +103,11 @@ void save_commands(void)
     ESP_ERROR_CHECK(esp_console_cmd_register(&setIP_cmd));
     ESP_ERROR_CHECK(esp_console_cmd_register(&setWifi_cmd));
     ESP_ERROR_CHECK(esp_console_cmd_register(&AT_cmd));
+
+
+    /** SPORT **/
+    ESP_ERROR_CHECK(esp_console_cmd_register(&enter_config_cmd));
+    ESP_ERROR_CHECK(esp_console_cmd_register(&exit_config_cmd));
 
 }
 
@@ -115,6 +133,11 @@ void console_init(void)
 
     ESP_ERROR_CHECK(esp_console_init(&console_config));
 
+    const int probe_status = linenoiseProbe();
+    if (probe_status) {
+        linenoiseSetDumbMode(1);
+    }
+
     linenoiseSetMultiLine(1);
     linenoiseHistorySetMaxLen(20);
 
@@ -139,10 +162,14 @@ int cmd_help(int argc, char **argv)
         "  SET_IP_WIFI   Modifie config IP Wifi en statique\n"
         "  REBOOT        Reboot ESP\n"
         "  PING          Ping vers l'adresse donnée\n"
+        "  ENTER_CONFIG  Entre la board en mode config\n"
+        "  EXIT_CONFIG   Sortie du mode config\n"
             
     );
     return 0;
 }
+
+/*======== ETHERNET ======== */
 
 int cmd_AT(int arc, char **argv)
 {
@@ -330,6 +357,25 @@ int cmd_set_wifi_ip(int argc, char **argv)
     return 0;
 }
 
+/*======== SPORT ======== */
+
+int cmd_enter_config(int agrc, char **argv)
+{
+    ESP_LOGI(TAG_PROMPT, "!! Enter board to config mode !!");
+    enter_mode_config();
+
+    return 0;
+
+}
+
+int cmd_exit_config(int agrc, char **argv)
+{
+    ESP_LOGI(TAG_PROMPT, "!! Exit board to config mode !!");
+    exit_mode_config();
+
+    return 0;
+}
+
 // ==========================
 // Task console
 // ==========================
@@ -338,10 +384,11 @@ void console_task(void *arg)
 {
     char *line;
 
-    ESP_LOGI(TAG_PROMPT, "---------- Prompt BODET Tool V1.0 ----------");
+    ESP_LOGI(TAG_PROMPT, "\n ---------- Prompt BODET Tool V1.0 ----------");
     ESP_LOGI(TAG_PROMPT, "   Commande HELP pour liste des commandes ");
 
-    while (1) {
+    while (1) 
+    {
         line = linenoise("BodetTool> ");
         if (line == NULL) continue;
 

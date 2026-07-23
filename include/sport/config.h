@@ -4,24 +4,39 @@
 #include "driver/uart.h"
 #include "driver/gpio.h"
 #include "esp_log.h"
+#include <string.h>
 
-#define UART_NUM       UART_NUM_2
+// Sur board ESP32-Ethernet-Kit V1.2
 #define UART_TX_PIN    GPIO_NUM_33
 #define UART_RX_PIN    GPIO_NUM_32
 #define RS485_DE_PIN   GPIO_NUM_4
 
+// Connecteur MOXA 3(D+) et 4(D-)
+
 #define UART_BUF_SIZE  256
 
-#define SOF         0x30
+#define SOF                 0x30
+#define END_FRAME           0x04
 
+#define DEFAULT_DEST_ID     0x0000
+#define DEFAULT_FROM_ID     0xFFFF
+
+
+typedef enum {
+    RX_WAIT_SOF,
+    RX_HEADER,
+    RX_DATA,
+    RX_CRC,
+    RX_EOF
+}rx_state_t;
 
 typedef struct {
-    uint8_t data[50];
-    size_t  len;
-    uint8_t start_byte;
-} varsys_frame_t;
-
-extern varsys_frame_t handle_varsys;
+    rx_state_t state;
+    uint8_t buffer[UART_BUF_SIZE];
+    uint16_t index;
+    uint8_t data_len;
+    uint16_t crc_rx;
+}rx_parser_t;
 
 typedef enum {
     NETWORK_OUTDOOR,
@@ -46,14 +61,17 @@ typedef enum{
 // structure de la trame de configuration
 typedef struct {
     uint8_t sof;
-    uint16_t cmd;
+    uint8_t firstCmd;
+    uint8_t secondCmd;
     uint16_t fromId;
     uint16_t destId;
     uint8_t dataLen;
-    uint8_t* data;
+    uint8_t data[256];
     uint16_t crc;
     uint8_t eof;
-} config_trame_t;
+}config_trame_t;
+
+extern config_trame_t config_trame;
  
 
 // General config command
@@ -110,12 +128,12 @@ typedef struct {
 // Recensement command
 #define CFG_CMD_RCST               0x20
 
-#define CFG_CMD_RCST_START         0x00 //D�but du recensement
-#define CFG_CMD_RCST_STOP          0x01 //Arr�t du recesement
-#define CFG_CMD_RCST_ANSW          0x02 //Demande de recenssement de la carte suite au d�marrage du resencement
-#define CFG_CMD_RCST_OK            0x03 //R�ponse OK du pupitre
-#define CFG_CMD_RCST_NOK           0x04 //R�ponse NOK du pupitre
-#define CFG_CMD_RCST_VERIF         0x05 //Demande de v�rification de la part du pupitre
+#define CFG_CMD_RCST_START         0x00 //Début du recensement
+#define CFG_CMD_RCST_STOP          0x01 //Arret du recesement
+#define CFG_CMD_RCST_ANSW          0x02 //Demande de recenssement de la carte suite au demarrage du recensement
+#define CFG_CMD_RCST_OK            0x03 //Reponse OK du pupitre
+#define CFG_CMD_RCST_NOK           0x04 //Reponse NOK du pupitre
+#define CFG_CMD_RCST_VERIF         0x05 //Demande de verification de la part du pupitre
 
 /* Liste Gamme LEGACY */
 #define MAP_SCOREBOARD_LEGACY_LIST                                                              \
@@ -225,6 +243,8 @@ typedef enum {
 
 #undef X
 
+#define MAX_DEVICES_RS485 8
+
 // Structure avec les paramètres de configuration
 typedef struct 
 {
@@ -239,19 +259,126 @@ typedef struct
     language_e board_language;
     bool modem_autoscan;
     uint8_t modem_canal; /* Canal de 1 a 6 */
-    modem_network_e modem_network;
+    modem_network_e modem_network; /* INDOOR ou OUTDOOR*/
     uint16_t klaxon_time;
     mode_eco_e mode;
     uint16_t board_id;
     int8_t temperature_offset;
     bool mode_config;
     bool autonomous;
-}config_t;
+}config_device_t;
 
-extern config_t config;
+bool add_device(config_trame_t frame_config_rx);
+const config_device_t *rs485_get_devices(void);
+void device_sport_to_json(char *out, size_t len);
+void LOG_DEVICE(void);
+
 
 void config_init(void);
 void enter_mode_config(void);
-uint8_t send_command_config(config_trame_t trame);
+void exit_mode_config(void);
+
+/**
+ * @brief Remet la carte en config usine
+ * @return CFG_CMD_ACK 0x0001
+ */
+ void set_default_config(void);
+
+/**
+ * @brief Permet de lancer l'affichage du panneau en mode test (full noir)
+ * @return CFG_CMD_ACK 0x0001
+ */
+void mode_test_start(void);
+
+/**
+ * @brief La carte renvoi ses paramètres tableau
+ * 
+ * @param uint16_t destID : identifiant du destinataire
+ * 
+ * @return CFG_CMD_ACK 0x0001 avec data :
+ *      - Numéro de panneau (1 byte) de 1 à 6
+ *      - N° installation   (1 byte) de 1 à 6
+ *      - Type de panneau   (1 byte) Numéro dans la liste de map
+ *      - Maitre ou esclave (1 byte) 0 : esclave ou 1 : maître
+ *      - Mode autonome     (1 byte) 1 : autonome ou 0 sinon
+ */
+void get_config_board(uint16_t destID);
+
+/**
+ * @brief La carte renvoi la configuration actuelle de la carte
+ * 
+ */
+void get_config_param(void);
+
+/**
+ * @brief Get the config modem object
+ * 
+ */
+void get_config_modem(void);
+
+/**
+ * @brief Get the modem version object
+ * 
+ */
+void get_modem_version(void);
+
+/**
+ * @brief Get the board version object
+ * 
+ */
+void get_board_version(void);
+
+/**
+ * @brief La carte allume tout les digits ainsi que son klaxon pour etre repérable
+ * 
+ */
+void get_localisation(uint16_t destID);
+
+/**
+ * @brief La carte RESET
+ * @return CFG_CMD_ACK 0x0001
+ */
+void send_reset(uint16_t destID);
+
+/*******************/
+/**   MODE TEST   **/
+/*******************/
+
+typedef enum {
+    TEST_MODE_VIDE,
+    TEST_AUTO_CLASSIQUE,
+    TEST_FULL,
+    TEST_LIGNE_BY_LIGNE,
+}mode_test_e;
+
+
+/**
+ * @brief Lancement du mode test, à lancer avant toute autre commande de test
+ * 
+ */
+
+void enter_mode_test(void);
+
+/**
+ * @brief permet de changer entre les différents modes de test
+ * 
+ * @param mode : Choix entre les 4 modes
+ * @return true : ACK reçu de la carte après envoi trame
+ * @return false : NACK reçu de la carte
+ */
+bool test_mode_change(mode_test_e mode);
+
+
+const config_device_t *get_devices(void);
+uint16_t calcul_CRC16(uint8_t *data, size_t len);
+esp_err_t rs485_send_frame(config_trame_t *trame);
+
+void rs485_receive_task(void *arg);
+void config_task(void *arg);
+
+bool parser_process(rx_parser_t *p, uint8_t byte, config_trame_t *frame);
+
+void send_command_recensement();
+void send_ok_recensement(uint16_t id);
 
 #endif

@@ -9,7 +9,7 @@ void generate_devices_json(char *dev_to_json)
     ESP_LOGI(TAG_JSON, "Creating Json File.... with %d devices", device_count);
 
     size_t used = 0;
-    used += snprintf(dev_to_json + used, MAX_JSON_LEN - used, "{ \"devices\": [");
+    used += snprintf(dev_to_json + used, MAX_JSON_LEN - used, "{ \"devices_time\": [");
 
     for (int i = 1; i < device_count; i++) 
     {

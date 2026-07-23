@@ -67,17 +67,26 @@ void start_http_server(void)
 
     if(httpd_start(&server,&config)==ESP_OK)
     {
-        httpd_uri_t uri_device = {
-            .uri      = "/devices", 
-            .method   = HTTP_GET,
-            .handler  = devices_get_handler,
-            .user_ctx = NULL
-        };
 
         httpd_uri_t root_uri = {
             .uri      = "/",
             .method   = HTTP_GET,
             .handler  = root_handler,
+        };
+
+        httpd_uri_t ping = {
+            .uri = "/ping",
+            .method = HTTP_GET,
+            .handler = ping_handler
+        };
+
+        /*====== TIME =====*/
+
+        httpd_uri_t uri_device = {
+            .uri      = "/devices_time", 
+            .method   = HTTP_GET,
+            .handler  = devices_time_get_handler,
+            .user_ctx = NULL
         };
 
         httpd_uri_t scan_dhs_uri = {
@@ -93,10 +102,41 @@ void start_http_server(void)
             .user_ctx = NULL
         };
 
-        httpd_register_uri_handler(server,&uri_device);
+        /*====== SPORT ======*/
+        
+        // Lance le recensement 
+        httpd_uri_t recensement_uri = {
+            .uri      = "/config/recensement",
+            .method   = HTTP_GET,
+            .handler  = recensement_handler,
+            .user_ctx = NULL
+        };
+
+        // Renvoi les devices sur le bus RS485
+        httpd_uri_t sport_devices_uri = {
+            .uri      = "/config/devices_sport",
+            .method   = HTTP_GET,
+            .handler  = device_sport_get_handler,
+            .user_ctx = NULL
+        };
+
+        httpd_uri_t exit_config_uri = {
+            .uri      = "/config/exit",
+            .method   = HTTP_GET,
+            .handler  = exit_config_handler,
+            .user_ctx = NULL
+        };
+
         httpd_register_uri_handler(server, &root_uri);
+        httpd_register_uri_handler(server, &ping);
         httpd_register_uri_handler(server, &scan_dhs_uri);
         httpd_register_uri_handler(server, &proxy_test_uri);
+
+        httpd_register_uri_handler(server, &uri_device);
+        httpd_register_uri_handler(server, &recensement_uri);
+        httpd_register_uri_handler(server, &exit_config_uri);
+        httpd_register_uri_handler(server, &sport_devices_uri);
+
 
 
         ESP_LOGI(TAG_HTTP,"Serveur HTTP démarré");
@@ -114,6 +154,14 @@ esp_err_t root_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
+esp_err_t ping_handler(httpd_req_t *req)
+{
+    httpd_resp_send(req, "OK", HTTPD_RESP_USE_STRLEN);
+    return ESP_OK;
+}
+
+/* ==================== TIME =================================*/
+
 esp_err_t scan_dhs_handler(httpd_req_t *req)
 {
     ESP_LOGI(TAG_HTTP, "SCAN DHS request...");
@@ -126,7 +174,7 @@ esp_err_t scan_dhs_handler(httpd_req_t *req)
 }
 
 // Requete uniquement en mode listener, lancer scan udp avant
-esp_err_t devices_get_handler(httpd_req_t *req)
+esp_err_t devices_time_get_handler(httpd_req_t *req)
 {
     static char json_list[MAX_JSON_LEN];
     ESP_LOGI(TAG_HTTP,"Device_get_handler http...");
@@ -139,6 +187,8 @@ esp_err_t devices_get_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
+
+// Essai affichage page serveur web du device selectionné
 esp_err_t proxy_test_handler(httpd_req_t *req)
 {
     ESP_LOGI("HTTP", "proxy_test_handler called");
@@ -146,18 +196,18 @@ esp_err_t proxy_test_handler(httpd_req_t *req)
     const char *html =
         "<!DOCTYPE html>"
         "<html>"
-        "<head>"
-        "<meta charset='utf-8'>"
-        "<title>ESP32 Proxy Test</title>"
-        "<style>"
-        "body { font-family: sans-serif; background:#FFF012; padding:20px; }"
-        "h1 { color:#000; }"
-        "</style>"
-        "</head>"
-        "<body>"
-        "<h1>Proxy ESP32 OK</h1>"
-        "<p>La page est bien streamée depuis l'ESP32.</p>"
-        "</body>"
+            "<head>"
+            "<meta charset='utf-8'>"
+            "<title>ESP32 Proxy Test</title>"
+            "<style>"
+                "body { font-family: sans-serif; background:#FFF012; padding:20px; }"
+                "h1 { color:#000; }"
+            "</style>"
+            "</head>"
+            "<body>"
+                "<h1>Proxy ESP32 OK</h1>"
+                "<p>La page est bien streamée depuis l'ESP32.</p>"
+            "</body>"
         "</html>";
 
     httpd_resp_set_type(req, "text/html");
@@ -165,3 +215,50 @@ esp_err_t proxy_test_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
+/* ===================== SPORT ====================================*/
+
+esp_err_t enter_config_handler(httpd_req_t *req)
+{
+
+    ESP_LOGI(TAG_HTTP, "Enter config request....");
+
+    enter_mode_config();
+    
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, "json", HTTPD_RESP_USE_STRLEN);
+
+    return ESP_OK;
+}
+
+esp_err_t recensement_handler(httpd_req_t *req)
+{
+    ESP_LOGI(TAG_HTTP, "Start recensement request....");
+
+    send_command_recensement();
+
+    httpd_resp_send(req, "RECENSEMENT", HTTPD_RESP_USE_STRLEN);
+
+    return ESP_OK;
+}
+
+esp_err_t device_sport_get_handler(httpd_req_t *req)
+{
+    ESP_LOGI(TAG_HTTP, "Get sport device");
+
+    static char json_sport_device[MAX_JSON_LEN];
+    device_sport_to_json(json_sport_device, sizeof(json_sport_device));
+
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, json_sport_device, HTTPD_RESP_USE_STRLEN);
+
+    return ESP_OK;
+}
+
+
+esp_err_t exit_config_handler(httpd_req_t *req)
+{
+    ESP_LOGI(TAG_HTTP, "exit config request....");
+    httpd_resp_send(req, "RECENSEMENT", HTTPD_RESP_USE_STRLEN);
+
+    return ESP_OK;
+}
